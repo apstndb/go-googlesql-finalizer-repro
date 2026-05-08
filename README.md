@@ -17,6 +17,35 @@ go test -count=1 -v ./...
 The failure is timing-sensitive, so the test loops enough times to make the
 problem likely to reproduce. A run may take a couple of minutes.
 
+The default loop count is `1000`. Override it when you only want a quick smoke
+test:
+
+```sh
+GO_GOOGLESQL_REPRO_ITERATIONS=10 go test -count=1 -v ./...
+```
+
+## GC Workaround Check
+
+The larger test suite that exposed this issue works around the failure by
+disabling GC in `TestMain`. This repro forces `runtime.GC()` after each
+iteration by default, so `debug.SetGCPercent(-1)` alone would not suppress the
+forced collection. The control mode below disables automatic GC and skips the
+explicit `runtime.GC()` calls:
+
+```sh
+GO_GOOGLESQL_REPRO_DISABLE_GC=1 go test -count=1 -v ./...
+```
+
+The same mode is also available through a build tag:
+
+```sh
+go test -tags=disable_gc -count=1 -v ./...
+```
+
+This should avoid the observed failure by preventing finalizers from running
+during the test process. It is only a workaround check, not a fix for the
+underlying ownership or finalizer behavior.
+
 ## Observed Failure
 
 Observed with `github.com/goccy/go-googlesql v0.2.0`:

@@ -2,22 +2,73 @@ package googlesqlrepro
 
 import (
 	"fmt"
+	"os"
 	"runtime"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"testing"
 
 	googlesql "github.com/goccy/go-googlesql"
 )
+
+const (
+	disableGCEnv  = "GO_GOOGLESQL_REPRO_DISABLE_GC"
+	iterationsEnv = "GO_GOOGLESQL_REPRO_ITERATIONS"
+)
+
+var disableGC bool
+
+func TestMain(m *testing.M) {
+	disableGC = disableGC || truthy(os.Getenv(disableGCEnv))
+	if !disableGC {
+		os.Exit(m.Run())
+	}
+
+	oldGCPercent := debug.SetGCPercent(-1)
+	code := m.Run()
+	debug.SetGCPercent(oldGCPercent)
+	os.Exit(code)
+}
 
 func TestOwnedSimpleTableFinalizerRepro(t *testing.T) {
 	if err := googlesql.Init(); err != nil {
 		t.Fatalf("googlesql.Init() error = %v", err)
 	}
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < reproIterations(t); i++ {
 		if err := buildOwnedSimpleTableCatalog(); err != nil {
 			t.Fatalf("iteration %d: %v", i, err)
 		}
-		runtime.GC()
+		maybeGC()
+	}
+}
+
+func reproIterations(t *testing.T) int {
+	t.Helper()
+	if raw := strings.TrimSpace(os.Getenv(iterationsEnv)); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			t.Fatalf("%s must be a positive integer, got %q", iterationsEnv, raw)
+		}
+		return n
+	}
+	return 1000
+}
+
+func maybeGC() {
+	if disableGC {
+		return
+	}
+	runtime.GC()
+}
+
+func truthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 
